@@ -1,0 +1,25 @@
+{
+  "name": "com.jellekul.virtualscanner",
+  "version": "0.0.1",
+  "displayName": "Virtual Scanner",
+  "description": "Virtual Scanner to create pointclouds from synthetic data",
+  "keywords": [
+    "pointcloud",
+    "laserscanning",
+    "scanner"
+  ],
+  "author": {
+    "name": "Jelle Vermandere",
+    "email": "jelle.vermandere@kuleuven.be",
+    "url": "https://www.jellever.be"
+  },
+  "type": "tool",
+  "samples": [
+    {
+      "displayName": "Working Sample scenes",
+      "description": "Shows how everything works in practice",
+      "path": "Samples~/SampleProject"
+    }
+  ],
+  "documentationUrl": "https://jellekul.github.io/VirtualScanner"
+}
