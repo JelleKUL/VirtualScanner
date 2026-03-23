@@ -4,6 +4,9 @@ using UnityEngine;
 using Unity.Jobs;
 using Unity.Collections;
 using UnityEngine.Events;
+using UnityEngine.SceneManagement;
+using System.Globalization;
+using System.Threading;
 
 namespace JelleKUL.Scanner
 {
@@ -24,24 +27,41 @@ namespace JelleKUL.Scanner
         [Unit("deg")]
         [Range(0f, 360f)]
         public float VerticalScanRange = 290;
-
-
+        [Tooltip("The standard deviation for the artificial noise expressed in mm")]
+        [Unit("mm")]
+        [Min(0f)]
+        public float systemNoise = 1;
+        [Tooltip("The standard deviation for the artificial noise expressed in %")]
+        [Unit("%")]
+        [Min(0f)]
+        public float distanceNoise = 0.001f;
+         [Tooltip("The amount of points that have been scanned (read only)")]
+        [ReadOnlyValue]
+        public int nrOfPoints = 0;
+        [Tooltip("The masks that indicates the furniture")]
+        public LayerMask scannableLayers;
 
         [Header("Coloring")]
         public RenderTexture colorTexture;
 
         [Header("Debug Visualisation")]
         [SerializeField]
-        bool drawRays = true;
-        [SerializeField]
-        bool showNoHits = false;
+        bool drawRays = false;
         [SerializeField]
         bool drawPoints = false;
         [SerializeField]
         float pointSize = 0.01f;
 
-        [HideInInspector]
+        [Header("Export")]
+        [BrowsePath(BrowseMode.File)]
         public string pointSavePath = "";
+        [HideInInspector]
+        public string scanID;
+        [Header("Actions")]
+        [ButtonBool("ScanEnvironment")]
+        public bool scanEnvironment;
+        [ButtonBool("SavePoints")]
+        public bool exportPointCloud;
 
 
 
@@ -76,9 +96,20 @@ namespace JelleKUL.Scanner
             {
                 foreach (var point in scannedPoints)
                 {
-                    point.Show();
+                    point.Show(pointSize);
                 }
             }
+            
+            if (drawRays && scannedPoints.Count > 0)
+            {
+                
+                foreach (var point in scannedPoints)
+                {
+                    Gizmos.color = point.color;
+                    Gizmos.DrawLine(transform.position, point.position);
+                }
+            }
+            
 
         }
 
@@ -89,6 +120,9 @@ namespace JelleKUL.Scanner
                 Debug.LogWarning("Please enter PlayMode to start scanning");
                 return;
             }
+
+            scanID = SceneManager.GetActiveScene().name + "-" +System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            print(scanID);
 
             //check if the transform has changed, then update scan directions
             if (lastDensity != scanDensity)
@@ -141,28 +175,29 @@ namespace JelleKUL.Scanner
             int rayCount = scanParams.Count;
             NativeArray<RaycastCommand> commands = new NativeArray<RaycastCommand>(rayCount, Allocator.TempJob);
             NativeArray<RaycastHit> results = new NativeArray<RaycastHit>(rayCount, Allocator.TempJob);
-
+            QueryParameters param = QueryParameters.Default;
+            param.layerMask = scannableLayers;
             for (int i = 0; i < rayCount; i++)
             {
-                commands[i] = new RaycastCommand(origin, scanParams[i].direction, QueryParameters.Default, scanRange);
+                commands[i] = new RaycastCommand(origin, scanParams[i].direction,param, scanRange);
             }
             // Schedule batch of raycasts
             JobHandle handle = RaycastCommand.ScheduleBatch(commands, results, 32);
             // Complete the job
             handle.Complete();
-
+            nrOfPoints = 0;
             // Process results
             for (int i = 0; i < rayCount; i++)
             {
                 if (results[i].collider != null)
                 {
+                    nrOfPoints++;
                     scannedPoints.Add(new ScannedPoint(
-                        results[i].point,
+                        systemNoise + distanceNoise > 0 ? AddScannerNoise(origin, results[i].point, results[i].distance, systemNoise, distanceNoise) : results[i].point,
                         results[i].normal,
                         scanParams[i].uv,
                         Color.white,
-                        scanParams[i].pointIdx,
-                        pointSize));
+                        scanParams[i].pointIdx));
                 }
             }
             // Dispose arrays
@@ -190,7 +225,7 @@ namespace JelleKUL.Scanner
             {
                 nativePoints[i] = scannedPoints[i];
             }
-            Debug.Log(pixels.Length + ", " + tex.width + " " + tex.height + " " + tex.width * tex.height);
+            Debug.Log(pixels.Length + " =? " + tex.width + " * " + tex.height + "  = " + tex.width * tex.height);
 
             // Run job
             var job = new SampleUVJob
@@ -213,7 +248,34 @@ namespace JelleKUL.Scanner
             Destroy(tex);
         }
 
-        //MESHING
+        //random
+        public Vector3 AddScannerNoise(Vector3 startPoint, Vector3 hitPoint, float distance, float baseNoise, float distNoise)
+        {
+            // Direction of the ray
+            Vector3 dir = (hitPoint - startPoint).normalized;
+
+            // Gaussian noise with mean 0 and std deviation proportional to distance
+            float sigma = baseNoise * 0.001f + distNoise * distance; // Convert from mm to meters
+            float noise = RandomNormal(0f, sigma);
+
+            // Apply the noise along the ray direction
+            float noisyDistance = Mathf.Max(distance + noise, 0f); // avoid negative distance
+
+            // Compute the new noisy point
+            return startPoint + dir * noisyDistance;
+        }
+
+        /// <summary>
+        /// Generates Gaussian noise using the Box–Muller transform.
+        /// </summary>
+        private float RandomNormal(float mean, float stdDev)
+        {
+            float u1 = 1.0f - Random.value;  // avoid log(0)
+            float u2 = 1.0f - Random.value;
+            float randStdNormal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) *
+                                Mathf.Sin(2.0f * Mathf.PI * u2);
+            return mean + stdDev * randStdNormal;
+        }
 
 
 
@@ -246,6 +308,33 @@ namespace JelleKUL.Scanner
                 return;
             }
             ExportPointCloud(scannedPoints, pointSavePath);
+            ExportRenderTexture(colorTexture,System.IO.Path.ChangeExtension(pointSavePath, ".png"));
+        }
+        public void ExportRenderTexture(RenderTexture colorTexture, string filePath)
+        {
+            // Keep track of current RT
+            RenderTexture current = RenderTexture.active;
+            RenderTexture.active = colorTexture;
+
+            // Create Texture2D
+            Texture2D tex = new Texture2D(colorTexture.width, colorTexture.height, TextureFormat.RGBA32, false);
+
+            // Copy pixels
+            tex.ReadPixels(new Rect(0, 0, colorTexture.width, colorTexture.height), 0, 0);
+            tex.Apply();
+
+            // Restore
+            RenderTexture.active = current;
+
+            // Encode
+            byte[] bytes = tex.EncodeToPNG();
+
+            // Save file
+            File.WriteAllBytes(filePath, bytes);
+            Debug.Log($"Saved Pano Image to {filePath}");
+
+            // Cleanup
+            Object.Destroy(tex);
         }
         /// <summary>
         /// Saves a 2D array of points with normals to a .txt file in CloudCompare-compatible format.
@@ -259,6 +348,21 @@ namespace JelleKUL.Scanner
 
             using (StreamWriter writer = new StreamWriter(filePath))
             {
+                // Header information
+                // Timestamp
+                writer.WriteLine($"# timestamp {System.DateTime.UtcNow:O}");
+
+                // Transform matrix
+                Matrix4x4 m = transform.localToWorldMatrix;
+
+                writer.WriteLine("# transform_matrix");
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, 
+                    "# {0} {1} {2} {3} {4} {5} {6} {7} {8} {9} {10} {11} {12} {13} {14} {15}", 
+                    m.m00, m.m01, m.m02, m.m03, m.m10, m.m11, m.m12, m.m13, m.m20, m.m21, m.m22, m.m23, m.m30, m.m31, m.m32, m.m33));
+
+                // Optional column header
+                writer.WriteLine("# x y z nx ny nz r g b");
+                
                 foreach (ScannedPoint point in points)
                 {
                     Vector3 p = point.position;
@@ -279,6 +383,52 @@ namespace JelleKUL.Scanner
             }
 
             Debug.Log($"Saved {points.Count} scan samples (with normals & colors) to {filePath}");
+        }
+        [ContextMenu("Save LAS Points")]
+        public void SaveLASPoints()
+        {
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("Please enter PlayMode to export data");
+                return;
+            }
+            ExportPointCloudLAS(scannedPoints, pointSavePath);
+        }
+
+        public void ExportPointCloudLAS(List<ScannedPoint>points, string filePath)
+        {
+            Vector3[] positions;
+            Color[] colors;
+            Vector3[] normals;
+
+            SplitScannedPoints(points, out positions, out colors, out normals);
+            
+            LASFileWriter.WriteLAS(
+                filePath,
+                positions,
+                colors,
+                normals
+            );
+        }
+        public void SplitScannedPoints(
+            List <ScannedPoint> scanned,
+            out Vector3[] positions,
+            out Color[] colors,
+            out Vector3[] normals
+        )
+        {
+            int count = scanned.Count;
+
+            positions = new Vector3[count];
+            colors    = new Color[count];
+            normals   = new Vector3[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                positions[i] = scanned[i].position;
+                colors[i]    = scanned[i].color;
+                normals[i]   = scanned[i].normal;
+            }
         }
 
     }
@@ -304,19 +454,17 @@ namespace JelleKUL.Scanner
         public Vector2 uv;
         public Color32 color;
         public Vector2Int pointIdx;
-        public float radius;
 
-        public ScannedPoint(Vector3 position, Vector3 normal, Vector2 uv, Color32 color, Vector2Int pointIdx, float radius)
+        public ScannedPoint(Vector3 position, Vector3 normal, Vector2 uv, Color32 color, Vector2Int pointIdx)
         {
             this.position = position;
             this.normal = normal;
             this.uv = uv;
             this.color = color;
             this.pointIdx = pointIdx;
-            this.radius = radius;
         }
 
-        public void Show()
+        public void Show(float radius = 0.01f)
         {
             Gizmos.color = color;
             Gizmos.DrawSphere(position, radius);

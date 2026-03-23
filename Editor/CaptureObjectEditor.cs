@@ -18,18 +18,24 @@ namespace JelleKUL.Scanner
             if (Application.isPlaying)
             {
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Isolation", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Isolation & Grid Creation", EditorStyles.boldLabel);
                 // Scan button
                 if (GUILayout.Button("Isolate Points"))
                 {
                     captureObject.IsolatePoints();
                 }
+                // Scan button
+                if (GUILayout.Button("Create Voxel Occupancy Grid"))
+                {
+                    captureObject.CreateOccupiedVoxelGrid();
+                }
             }
 
             // Save path field
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Save Path", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Export Paths", EditorStyles.boldLabel);
             EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PrefixLabel("Pointcloud Save Path");
             EditorGUILayout.TextField(captureObject.pointSavePath);
 
             if (GUILayout.Button("Browse", GUILayout.MaxWidth(80)))
@@ -52,12 +58,44 @@ namespace JelleKUL.Scanner
 
             if (Application.isPlaying)
             {
-            EditorGUILayout.Space();
-            // Scan button
-            if (GUILayout.Button("Export"))
-            {
-                captureObject.ExportPointCloud();
+                EditorGUILayout.Space();
+                // Scan button
+                if (GUILayout.Button("Export Pointcloud"))
+                {
+                    captureObject.ExportPointCloud();
+                }
             }
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PrefixLabel("Voxel Save Path");
+            EditorGUILayout.TextField(captureObject.voxelSavePath);
+
+            if (GUILayout.Button("Browse", GUILayout.MaxWidth(80)))
+            {
+                string path = EditorUtility.SaveFilePanel(
+                    "Select Save Location",
+                    Application.dataPath,
+                    captureObject.gameObject.name,
+                    "txt" // change to your preferred extension
+                );
+
+                if (!string.IsNullOrEmpty(path))
+                {
+                    Undo.RecordObject(captureObject, "Set Save Path");
+                    captureObject.voxelSavePath = path;
+                    EditorUtility.SetDirty(captureObject);
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (Application.isPlaying)
+            {
+                EditorGUILayout.Space();
+                // Scan button
+                if (GUILayout.Button("Export VoxelGrid"))
+                {
+                    captureObject.ExportVoxels();
+                }
             }
         }
     }

@@ -54,5 +54,6 @@ namespace JelleKUL.Scanner
             }
             return true;
         }
+
     }
 }

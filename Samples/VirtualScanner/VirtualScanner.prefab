@@ -102,12 +102,20 @@ MonoBehaviour:
   scanDensity: 12.5
   scanRange: 100
   VerticalScanRange: 290
+  systemNoise: 1
+  distanceNoise: 0.001
+  nrOfPoints: 0
+  scannableLayers:
+    serializedVersion: 2
+    m_Bits: 83
   colorTexture: {fileID: 8400000, guid: ab8aa7c9fc8b2d544b0b785257f9bcf2, type: 2}
   drawRays: 1
-  showNoHits: 0
   drawPoints: 0
   pointSize: 0.01
   pointSavePath: 
+  scanID: 
+  scanEnvironment: 0
+  exportPointCloud: 0
   scannedPoints: []
 --- !u!114 &1466491340624158311
 MonoBehaviour:
