@@ -10,11 +10,13 @@ using System.Threading;
 
 namespace JelleKUL.Scanner
 {
+    [System.Serializable]
     public class VirtualScanner : MonoBehaviour
     {
         [Header("Scan Parameters")]
         [Tooltip("Update the scan continuously at runtime")]
         public bool scanContinuous = true;
+        public string scannerType = "Default";
         [Tooltip("mm at 10M distance (default 12.5mm)")]
         [Unit("mm")]
         [Min(0)]
@@ -32,9 +34,9 @@ namespace JelleKUL.Scanner
         [Min(0f)]
         public float systemNoise = 1;
         [Tooltip("The standard deviation for the artificial noise expressed in %")]
-        [Unit("%")]
+        [Unit("mm/10m")]
         [Min(0f)]
-        public float distanceNoise = 0.001f;
+        public float distanceNoise = 1f;
          [Tooltip("The amount of points that have been scanned (read only)")]
         [ReadOnlyValue]
         public int nrOfPoints = 0;
@@ -69,8 +71,10 @@ namespace JelleKUL.Scanner
 
         // Private Properties new scan system
         private float lastDensity = -1;
+        [System.NonSerialized]
         private List<ScanParameter> scanParameters = new List<ScanParameter>();
         [HideInInspector]
+        [System.NonSerialized]
         public List<ScannedPoint> scannedPoints = new List<ScannedPoint>();
 
         
@@ -121,8 +125,12 @@ namespace JelleKUL.Scanner
                 return;
             }
 
+            if(scanID == "")
+            {
             scanID = SceneManager.GetActiveScene().name + "-" +System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-            print(scanID);
+            print("Created new scanID: " + scanID);
+            }
+
 
             //check if the transform has changed, then update scan directions
             if (lastDensity != scanDensity)
@@ -255,7 +263,7 @@ namespace JelleKUL.Scanner
             Vector3 dir = (hitPoint - startPoint).normalized;
 
             // Gaussian noise with mean 0 and std deviation proportional to distance
-            float sigma = baseNoise * 0.001f + distNoise * distance; // Convert from mm to meters
+            float sigma = baseNoise * 0.001f + distNoise * 0.0001f * distance; // Convert from mm to meters and to mm/10M to meters
             float noise = RandomNormal(0f, sigma);
 
             // Apply the noise along the ray direction

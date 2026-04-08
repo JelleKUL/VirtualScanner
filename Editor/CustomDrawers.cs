@@ -18,12 +18,13 @@ namespace JelleKUL.Scanner
         public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
         {
             UnitAttribute unitAttr = (UnitAttribute)attribute;
-            Rect fieldRect = new Rect(position.x, position.y, position.width - 40, position.height);
-            Rect unitRect = new Rect(position.x + position.width - 35, position.y, 35, position.height);
+            int unitWidth = 8 * unitAttr.unit.Length + 7; // Adjust width based on unit text length;
+            Rect fieldRect = new Rect(position.x, position.y, position.width - unitWidth - 5, position.height);
+            Rect unitRect = new Rect(position.x + position.width - unitWidth, position.y, unitWidth, position.height);
 
             EditorGUI.PropertyField(fieldRect, property, label);
             GUIStyle unitStyle = new GUIStyle(EditorStyles.label);
-            unitStyle.alignment = TextAnchor.MiddleLeft;
+            unitStyle.alignment = TextAnchor.MiddleRight;
             unitStyle.normal.textColor = Color.gray;
             EditorGUI.LabelField(unitRect, unitAttr.unit, unitStyle);
         }

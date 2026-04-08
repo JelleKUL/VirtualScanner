@@ -11,6 +11,8 @@ namespace JelleKUL.Scanner
     [RequireComponent(typeof(MeshFilter), typeof(MeshCollider), typeof(MeshRenderer))]
     public class CaptureObject : MonoBehaviour
     {
+        [ReadOnlyValue]
+        public string scanID = "";
         [Header("Point Settings")]
         public float expandRatio = 1;
         
@@ -34,14 +36,28 @@ namespace JelleKUL.Scanner
 
         public List<ScannedPoint> points = new List<ScannedPoint>();
         private VoxelGrid grid;
-        Collider col;
+        MeshCollider col;
         Renderer rend;
+        MeshFilter filter;
+
 
         // Start is called before the first frame update
         void Start()
         {
+            Setup();
+        }
+
+        // Update is called once per frame
+        void Update()
+        {
+
+        }
+
+        public void Setup()
+        {
             col = GetComponent<MeshCollider>();
-            rend = col.GetComponent<Renderer>();
+            rend = GetComponent<Renderer>();
+            filter = GetComponent<MeshFilter>();
 
             Collider[] colliders = GetComponents<Collider>();
             foreach (Collider collider in colliders)
@@ -51,12 +67,10 @@ namespace JelleKUL.Scanner
                     collider.enabled = false;
                 }
             }
-        }
-
-        // Update is called once per frame
-        void Update()
-        {
-
+            if(col.sharedMesh == null)
+            {
+                SetCombinedMesh();
+            }
         }
 
         private void OnDrawGizmosSelected()
@@ -94,6 +108,108 @@ namespace JelleKUL.Scanner
             Bounds bounds = col.TryGetComponent(out Renderer r)? r.localBounds: col.bounds;
             bounds.Expand((expandRatio - 1) * Max(bounds.extents));
             return bounds;
+        }
+        public void SetCombinedMesh()
+        {
+            MeshFilter[] meshFilters = GetComponentsInChildren<MeshFilter>();
+            Dictionary<Material, List<CombineInstance>> materialToCombine = new Dictionary<Material, List<CombineInstance>>();
+
+            foreach (MeshFilter mf in meshFilters)
+            {
+                if (mf.transform == transform) continue;
+                if (mf.sharedMesh == null) continue;
+                MeshRenderer mr = mf.GetComponent<MeshRenderer>();
+                if (mr == null) continue;
+                Material[] materials = mr.sharedMaterials;
+
+                for (int sub = 0; sub < mf.sharedMesh.subMeshCount; sub++)
+                {
+                    Material mat = materials[Mathf.Min(sub, materials.Length - 1)];
+
+                    if (!materialToCombine.ContainsKey(mat))
+                        materialToCombine[mat] = new List<CombineInstance>();
+
+                    CombineInstance ci = new CombineInstance
+                    {
+                        mesh = mf.sharedMesh,
+                        subMeshIndex = sub,
+                        transform = transform.worldToLocalMatrix * mf.transform.localToWorldMatrix
+                    };
+
+                    materialToCombine[mat].Add(ci);
+                
+                }
+
+                //disable the rendere and colliders
+                mr.enabled = false;
+                Collider[] colliders = mf.GetComponents<Collider>();
+                foreach (Collider collider in colliders)
+                {
+                    collider.enabled = false;
+                }
+                Destroy(mf.gameObject);
+            }
+            //destroy all childeren
+            //foreach (MeshFilter mf in meshFilters) Destroy(mf.gameObject);
+
+            // Build final combined mesh
+            Mesh combinedMesh = new Mesh();
+            combinedMesh.name = "CombinedMesh";
+
+            List<CombineInstance> finalCombine = new List<CombineInstance>();
+            List<Material> finalMaterials = new List<Material>();
+
+            foreach (var kvp in materialToCombine)
+            {
+                Mesh tempMesh = new Mesh();
+                tempMesh.CombineMeshes(kvp.Value.ToArray(), true, true);
+
+                CombineInstance ci = new CombineInstance
+                {
+                    mesh = tempMesh,
+                    subMeshIndex = 0,
+                    transform = Matrix4x4.identity
+                };
+
+                finalCombine.Add(ci);
+                finalMaterials.Add(kvp.Key);
+            }
+
+            combinedMesh.CombineMeshes(finalCombine.ToArray(), false, false);
+
+            // After combinedMesh.CombineMeshes(...)
+            combinedMesh.RecalculateBounds();
+
+            // Choose your pivot target in world space:
+            // Option A — bottom centre of the combined mesh
+            Bounds bounds = combinedMesh.bounds; // bounds are in local space already
+            Vector3 pivotOffset = new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+
+            // Option B — centre of the mesh
+            // Vector3 pivotOffset = combinedMesh.bounds.center;
+
+            // Option C — the parent transform's current world position expressed in local space
+            // Vector3 pivotOffset = transform.InverseTransformPoint(transform.position); // = Vector3.zero
+
+            // Shift all vertices by -pivotOffset
+            Vector3[] vertices = combinedMesh.vertices;
+            for (int i = 0; i < vertices.Length; i++)
+                vertices[i] -= pivotOffset;
+            combinedMesh.vertices = vertices;
+            combinedMesh.RecalculateBounds();
+
+            // Move the GameObject to compensate so nothing appears to shift in world space
+            transform.position += transform.TransformVector(pivotOffset);
+
+            filter.sharedMesh = combinedMesh;
+            rend.sharedMaterials = finalMaterials.ToArray();
+
+            // Build collider (single mesh version)
+            MeshCollider col = GetComponent<MeshCollider>();
+            if (col == null) col = gameObject.AddComponent<MeshCollider>();
+
+            col.sharedMesh = null;
+            col.sharedMesh = combinedMesh;
         }
         
         [ContextMenu("Isolate Points")]

@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace JelleKUL.Scanner
 {
-    [CustomEditor(typeof(CaptureObject))]
+    [CustomEditor(typeof(CaptureObject)), CanEditMultipleObjects]
     public class CaptureObjectEditor : Editor
     {
         public override void OnInspectorGUI()
@@ -14,6 +14,11 @@ namespace JelleKUL.Scanner
 
             // Draw default inspector (if you still want the normal fields shown)
             DrawDefaultInspector();
+
+            if (GUILayout.Button("Setup ComboMesh"))
+            {
+                captureObject.Setup();
+            }
 
             if (Application.isPlaying)
             {
