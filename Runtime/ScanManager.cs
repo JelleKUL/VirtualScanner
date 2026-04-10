@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using JetBrains.Annotations;
 using UnityEditor;
+using UnityEditor.EditorTools;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.WSA;
@@ -36,7 +37,11 @@ namespace JelleKUL.Scanner
         [Header("Procedural Scanning")]
 
         public ProceduralRoomGenerator roomGenerator;
-        public int numberOfRoomsToGenerate = 1;
+        [Tooltip("The different scanner types to use for procedural scanning, The first one is always used, the following ones are used for furniture variations")]
+        public ScannerTypeScriptableObject mainScannerType;
+        public int numberOfRoomsToGenerate = 10;
+        public List<ScanVariation> scanVariations;
+       
         [ButtonBool("ScanProceduralRooms")]
         public bool scanProceduralRooms;
 
@@ -125,36 +130,11 @@ namespace JelleKUL.Scanner
         IEnumerator ScanAndIsolateCoroutine()
         {
             float now = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            print("Capturing PanoImage");
-            //yield return new WaitForEndOfFrame();
-            imageCapture.UpdateTexture();
 
-            print("Started Scanning...");
-            yield return 0;
-            scanner.ScanEnvironment();
+            yield return StartCoroutine(ScanScene("main.txt", "pano.png"));
 
-            print("Looking for active CaptureObjects...");
-            // get all the Capture objects in range
-            yield return 0;
-            List<ScannedPoint> insidePoints = new List<ScannedPoint>();
-            Vector3 min = transform.position - boundingBoxSize / 2;
-            Vector3 max = transform.position + boundingBoxSize / 2;
-            foreach (var point in scanner.scannedPoints)
-            {
-                Vector3 p = point.position;
-                if (p.x >= min.x && p.x <= max.x &&
-                    p.y >= min.y && p.y <= max.y &&
-                    p.z >= min.z && p.z <= max.z)
-                {
-                    insidePoints.Add(point);
-                }
-            }
-
-            print("Exporting pointcloud...");
-            scanner.ExportPointCloud(insidePoints, Path.Join(saveFolderPath, "main.txt"));
-            scanner.ExportRenderTexture(scanner.colorTexture,Path.Join(saveFolderPath, "pano.png"));
             File.WriteAllText(Path.Join(saveFolderPath,"main_bb.json"), GetBoundingBoxesString());
-            File.WriteAllText(Path.Join(saveFolderPath,"scan_parameters.json"), JsonUtility.ToJson(scanner));
+            File.WriteAllText(Path.Join(saveFolderPath,"scan_parameters.json"), JsonUtility.ToJson(scanner.scannerType));
             
             print("Isolating objects...");
             yield return 0;
@@ -219,7 +199,36 @@ namespace JelleKUL.Scanner
         }
         public void ScanEmptyScene()
         {
-        StartCoroutine(ScanEmptySceneCoroutine());
+            StartCoroutine(ScanEmptySceneCoroutine());
+        }
+
+        IEnumerator ScanScene(string scanName = "main.txt", string panoName = "pano.png")
+        {
+            print("Capturing PanoImage");
+            //yield return new WaitForEndOfFrame();
+            imageCapture.UpdateTexture();
+
+            print("Started Scanning...");
+            yield return 0;
+            scanner.ScanEnvironment();
+
+            List<ScannedPoint> insidePoints = new List<ScannedPoint>();
+            Vector3 min = transform.position - boundingBoxSize / 2;
+            Vector3 max = transform.position + boundingBoxSize / 2;
+            foreach (var point in scanner.scannedPoints)
+            {
+                Vector3 p = point.position;
+                if (p.x >= min.x && p.x <= max.x &&
+                    p.y >= min.y && p.y <= max.y &&
+                    p.z >= min.z && p.z <= max.z)
+                {
+                    insidePoints.Add(point);
+                }
+            }
+
+            print("Exporting pointcloud...");
+            scanner.ExportPointCloud(insidePoints, Path.Join(saveFolderPath, scanName));
+            scanner.ExportRenderTexture(scanner.colorTexture,Path.Join(saveFolderPath, panoName));
         }
 
         IEnumerator ScanEmptySceneCoroutine()
@@ -233,27 +242,13 @@ namespace JelleKUL.Scanner
                 cap.gameObject.SetActive(false);
             }
             yield return 0;
-            imageCapture.UpdateTexture();
-            yield return 0;
-            scanner.ScanEnvironment();
-            
-            List<ScannedPoint> insidePoints = new List<ScannedPoint>();
-            Vector3 min = transform.position - boundingBoxSize / 2;
-            Vector3 max = transform.position + boundingBoxSize / 2;
+            yield return StartCoroutine(ScanScene("main_empty.txt", "pano_empty.png"));
+        }
 
-            foreach (var point in scanner.scannedPoints)
-            {
-                Vector3 p = point.position;
-                if (p.x >= min.x && p.x <= max.x &&
-                    p.y >= min.y && p.y <= max.y &&
-                    p.z >= min.z && p.z <= max.z)
-                {
-                    insidePoints.Add(point);
-                }
-            }
-            print("Exporting pointcloud...");
-            scanner.ExportPointCloud(insidePoints, Path.Join(saveFolderPath, "main_empty.txt"));
-            scanner.ExportRenderTexture(scanner.colorTexture,Path.Join(saveFolderPath, "pano_empty.png"));
+        public void ChangeScannerPosition()
+        {
+            Vector3 randomOffset = new Vector3(Random.Range(-boundingBoxSize.x / 2, boundingBoxSize.x / 2), Random.Range(-boundingBoxSize.y / 2, boundingBoxSize.y / 2), Random.Range(-boundingBoxSize.z / 2, boundingBoxSize.z / 2));
+            scanner.transform.position = transform.position + randomOffset * 0.5f; // keep it more towards the center to avoid scanning from the edge of the room
         }
 
         public void ScanProceduralRooms()
@@ -267,6 +262,7 @@ namespace JelleKUL.Scanner
         IEnumerator ScanProceduralRoomsCoroutine()
         {
             scanning = true;
+            scanner.scannerType = mainScannerType; // ensure we start with the main scanner type
 
             while (roomsScanned < numberOfRoomsToGenerate)
             {
@@ -279,7 +275,7 @@ namespace JelleKUL.Scanner
 
                 // 1. Scan and Isolate
                 Debug.Log("Step 1: Scan and Isolate");
-                scanner.scanID = roomGenerator.prefabList.style + "_" + scanner.scannerType + "_" + System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                scanner.scanID = roomGenerator.prefabList.style + "_" + scanner.scannerType.scannerType + "_" + System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
                 saveFolderPath = Directory.CreateDirectory(Path.Join(savePath, scanner.scanID)).FullName;
                 File.WriteAllText(Path.Join(saveFolderPath,"room_parameters.json"), JsonUtility.ToJson(roomGenerator));
                 FindCaptureObjects();
@@ -304,6 +300,22 @@ namespace JelleKUL.Scanner
                 Debug.Log("Step 3: Scan Empty Scene");
                 yield return StartCoroutine(ScanEmptySceneCoroutine());
 
+                // scan variations
+                for (int i = 0; i < scanVariations.Count; i++)
+                {
+                    Debug.Log($"Scan variation {i+1} of {scanVariations.Count}");
+                    ScanVariation variation = scanVariations[i];
+                    if(variation.changeFurniture) roomGenerator.RegenerateFurniture();
+                    if(variation.newScannerType != null) scanner.scannerType = variation.newScannerType;
+                    if(variation.changePosition) ChangeScannerPosition();
+                   
+                    yield return StartCoroutine(ScanScene("main_var_" + (i+1) + ".txt", "pano_var_" + (i+1) + ".png"));
+                    File.WriteAllText(Path.Join(saveFolderPath,"scan_var_" + (i+1) + ".json"), JsonUtility.ToJson(variation));
+                    File.WriteAllText(Path.Join(saveFolderPath,"scan_var_" + (i+1) + "_scan_parameters.json"), JsonUtility.ToJson(scanner.scannerType));
+                    
+                }
+                scanner.scannerType = mainScannerType; // reset to main scanner type after variations
+                scanner.transform.position = transform.position; // reset scanner position after each room
                 roomsScanned++;
                 Debug.Log($"Room {roomsScanned} complete.");
 
@@ -316,6 +328,13 @@ namespace JelleKUL.Scanner
         }
 
 
+    }
+    [System.Serializable]
+    public struct ScanVariation
+    {
+        public bool changeFurniture;
+        public bool changePosition;
+        public ScannerTypeScriptableObject newScannerType;
     }
 }
 

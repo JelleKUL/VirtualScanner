@@ -16,27 +16,7 @@ namespace JelleKUL.Scanner
         [Header("Scan Parameters")]
         [Tooltip("Update the scan continuously at runtime")]
         public bool scanContinuous = true;
-        public string scannerType = "Default";
-        [Tooltip("mm at 10M distance (default 12.5mm)")]
-        [Unit("mm")]
-        [Min(0)]
-        public float scanDensity = 12.5f;
-        [Tooltip("The max range of the scanner")]
-        [Unit("m")]
-        [Min(0f)]
-        public float scanRange = 100;
-        [Tooltip("The total degrees the vertical axis can cover")]
-        [Unit("deg")]
-        [Range(0f, 360f)]
-        public float VerticalScanRange = 290;
-        [Tooltip("The standard deviation for the artificial noise expressed in mm")]
-        [Unit("mm")]
-        [Min(0f)]
-        public float systemNoise = 1;
-        [Tooltip("The standard deviation for the artificial noise expressed in %")]
-        [Unit("mm/10m")]
-        [Min(0f)]
-        public float distanceNoise = 1f;
+        public ScannerTypeScriptableObject scannerType;
          [Tooltip("The amount of points that have been scanned (read only)")]
         [ReadOnlyValue]
         public int nrOfPoints = 0;
@@ -133,10 +113,10 @@ namespace JelleKUL.Scanner
 
 
             //check if the transform has changed, then update scan directions
-            if (lastDensity != scanDensity)
+            if (lastDensity != scannerType.scanDensity)
             {
-                lastDensity = scanDensity;
-                UpdateScanParameters(scanDensity);
+                lastDensity = scannerType.scanDensity;
+                UpdateScanParameters(scannerType.scanDensity);
             }
             print("Casting " + scanParameters.Count + " rays");
             // perform the scan job
@@ -165,7 +145,7 @@ namespace JelleKUL.Scanner
             {
                 for (int j = 0; j < pointsPerDisc; j++)
                 {
-                    if ((i * rayAngle * Mathf.Rad2Deg) > (360 - VerticalScanRange) / 2) // filter out the bottom unscannable rows
+                    if ((i * rayAngle * Mathf.Rad2Deg) > (360 - scannerType.VerticalScanRange) / 2) // filter out the bottom unscannable rows
                     {
                         Vector3 dir = Quaternion.Euler(0, j * rayAngle * Mathf.Rad2Deg, 0) * Quaternion.Euler(90 - i * rayAngle * Mathf.Rad2Deg, 0, 0) * vector0;
                         Vector2 uv = new Vector2(j * rayAngle * Mathf.Rad2Deg / 360, 1 - ((180 - i * rayAngle * Mathf.Rad2Deg) / 180));
@@ -187,7 +167,7 @@ namespace JelleKUL.Scanner
             param.layerMask = scannableLayers;
             for (int i = 0; i < rayCount; i++)
             {
-                commands[i] = new RaycastCommand(origin, scanParams[i].direction,param, scanRange);
+                commands[i] = new RaycastCommand(origin, scanParams[i].direction,param, scannerType.scanRange);
             }
             // Schedule batch of raycasts
             JobHandle handle = RaycastCommand.ScheduleBatch(commands, results, 32);
@@ -201,7 +181,7 @@ namespace JelleKUL.Scanner
                 {
                     nrOfPoints++;
                     scannedPoints.Add(new ScannedPoint(
-                        systemNoise + distanceNoise > 0 ? AddScannerNoise(origin, results[i].point, results[i].distance, systemNoise, distanceNoise) : results[i].point,
+                        scannerType.systemNoise + scannerType.distanceNoise > 0 ? AddScannerNoise(origin, results[i].point, results[i].distance, scannerType.systemNoise, scannerType.distanceNoise) : results[i].point,
                         results[i].normal,
                         scanParams[i].uv,
                         Color.white,
@@ -293,7 +273,7 @@ namespace JelleKUL.Scanner
             {
                 foreach (var p in points)
                 {
-                    if (p.sqrMagnitude > scanRange * scanRange) continue;
+                    if (p.sqrMagnitude > scannerType.scanRange * scannerType.scanRange) continue;
                     // Use InvariantCulture to avoid commas instead of dots in some locales
                     writer.WriteLine(
                         string.Format(
